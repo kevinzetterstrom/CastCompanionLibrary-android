@@ -16,8 +16,32 @@
 
 package com.google.android.libraries.cast.companionlibrary.cast;
 
-import static com.google.android.libraries.cast.companionlibrary.utils.LogUtils.LOGD;
-import static com.google.android.libraries.cast.companionlibrary.utils.LogUtils.LOGE;
+import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.res.Resources.NotFoundException;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Point;
+import android.media.AudioManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.preference.PreferenceScreen;
+import android.support.annotation.NonNull;
+import android.support.v4.media.MediaMetadataCompat;
+import android.support.v4.media.session.MediaSessionCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
+import android.support.v7.app.MediaRouteDialogFactory;
+import android.support.v7.media.MediaRouter.RouteInfo;
+import android.text.TextUtils;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.accessibility.CaptioningManager;
 
 import com.google.android.gms.cast.ApplicationMetadata;
 import com.google.android.gms.cast.Cast;
@@ -58,33 +82,6 @@ import com.google.android.libraries.cast.companionlibrary.widgets.IMiniControlle
 import com.google.android.libraries.cast.companionlibrary.widgets.MiniController;
 import com.google.android.libraries.cast.companionlibrary.widgets.MiniController.OnMiniControllerChangedListener;
 
-import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
-import android.app.PendingIntent;
-import android.app.Service;
-import android.content.ComponentName;
-import android.content.Context;
-import android.content.Intent;
-import android.content.res.Resources.NotFoundException;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Point;
-import android.media.AudioManager;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.preference.PreferenceScreen;
-import android.support.annotation.NonNull;
-import android.support.v4.media.MediaMetadataCompat;
-import android.support.v4.media.session.MediaSessionCompat;
-import android.support.v4.media.session.PlaybackStateCompat;
-import android.support.v7.app.MediaRouteDialogFactory;
-import android.support.v7.media.MediaRouter.RouteInfo;
-import android.text.TextUtils;
-import android.view.KeyEvent;
-import android.view.View;
-import android.view.accessibility.CaptioningManager;
-
 import org.json.JSONObject;
 
 import java.io.IOException;
@@ -98,6 +95,9 @@ import java.util.TimerTask;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
+
+import static com.google.android.libraries.cast.companionlibrary.utils.LogUtils.LOGD;
+import static com.google.android.libraries.cast.companionlibrary.utils.LogUtils.LOGE;
 
 /**
  * A subclass of {@link BaseCastManager} that is suitable for casting video contents (it
@@ -182,6 +182,7 @@ public class VideoCastManager extends BaseCastManager
     private MediaAuthService mAuthService;
     private long mLiveStreamDuration = DEFAULT_LIVE_STREAM_DURATION_MS;
     private MediaQueueItem mPreLoadingItem;
+    private MediaRouteDialogFactory mMediaRouteDialogFactory;
 
     public static final int QUEUE_OPERATION_LOAD = 1;
     public static final int QUEUE_OPERATION_INSERT_ITEMS = 2;
@@ -1080,7 +1081,7 @@ public class VideoCastManager extends BaseCastManager
                     public void onResult(MediaChannelResult result) {
                         for (VideoCastConsumer consumer : mVideoConsumers) {
                             consumer.onMediaQueueOperationResult(QUEUE_OPERATION_LOAD,
-                                    result.getStatus().getStatusCode());
+                                                                 result.getStatus().getStatusCode());
                         }
                     }
                 });
@@ -1158,11 +1159,11 @@ public class VideoCastManager extends BaseCastManager
 
                     @Override
                     public void onResult(MediaChannelResult result) {
-                        LOGD(TAG, "queueUpdateItems() " + result.getStatus() + result.getStatus()
-                                .isSuccess());
+                        LOGD(TAG,
+                             "queueUpdateItems() " + result.getStatus() + result.getStatus().isSuccess());
                         for (VideoCastConsumer consumer : mVideoConsumers) {
                             consumer.onMediaQueueOperationResult(QUEUE_OPERATION_UPDATE_ITEMS,
-                                    result.getStatus().getStatusCode());
+                                                                 result.getStatus().getStatusCode());
                         }
                     }
                 });
@@ -1335,17 +1336,17 @@ public class VideoCastManager extends BaseCastManager
         }
         mRemoteMediaPlayer
                 .queueReorderItems(mApiClient, itemIdsToReorder, insertBeforeItemId, customData)
-                .setResultCallback(
-                        new ResultCallback<MediaChannelResult>() {
+                .setResultCallback(new ResultCallback<MediaChannelResult>() {
 
-                            @Override
-                            public void onResult(MediaChannelResult result) {
-                                for (VideoCastConsumer consumer : mVideoConsumers) {
-                                    consumer.onMediaQueueOperationResult(QUEUE_OPERATION_REORDER,
-                                            result.getStatus().getStatusCode());
-                                }
-                            }
-                        });
+                                       @Override
+                                       public void onResult(MediaChannelResult result) {
+                                           for (VideoCastConsumer consumer : mVideoConsumers) {
+                                               consumer.onMediaQueueOperationResult(QUEUE_OPERATION_REORDER,
+                                                                                    result.getStatus()
+                                                                                            .getStatusCode());
+                                           }
+                                       }
+                                   });
     }
 
     /**
@@ -1431,7 +1432,7 @@ public class VideoCastManager extends BaseCastManager
                     public void onResult(MediaChannelResult result) {
                         for (VideoCastConsumer consumer : mVideoConsumers) {
                             consumer.onMediaQueueOperationResult(QUEUE_OPERATION_NEXT,
-                                    result.getStatus().getStatusCode());
+                                                                 result.getStatus().getStatusCode());
                         }
                     }
                 });
@@ -1491,8 +1492,8 @@ public class VideoCastManager extends BaseCastManager
             throw new IllegalArgumentException(
                     "item cannot be empty or insertBeforeItemId cannot be invalid");
         }
-        mRemoteMediaPlayer.queueInsertItems(mApiClient, new MediaQueueItem[]{item},
-                insertBeforeItemId, customData).setResultCallback(
+        mRemoteMediaPlayer.queueInsertItems(mApiClient, new MediaQueueItem[]{item}, insertBeforeItemId,
+                                            customData).setResultCallback(
                 new ResultCallback<MediaChannelResult>() {
 
                     @Override
@@ -1586,8 +1587,7 @@ public class VideoCastManager extends BaseCastManager
                     @Override
                     public void onResult(MediaChannelResult result) {
                         if (!result.getStatus().isSuccess()) {
-                            onFailed(R.string.ccl_failed_to_play,
-                                    result.getStatus().getStatusCode());
+                            onFailed(R.string.ccl_failed_to_play, result.getStatus().getStatusCode());
                         }
                     }
 
@@ -1627,13 +1627,11 @@ public class VideoCastManager extends BaseCastManager
                     @Override
                     public void onResult(MediaChannelResult result) {
                         if (!result.getStatus().isSuccess()) {
-                            onFailed(R.string.ccl_failed_to_stop,
-                                    result.getStatus().getStatusCode());
+                            onFailed(R.string.ccl_failed_to_stop, result.getStatus().getStatusCode());
                         }
                     }
 
-                }
-        );
+                });
     }
 
     /**
@@ -1681,8 +1679,7 @@ public class VideoCastManager extends BaseCastManager
                     @Override
                     public void onResult(MediaChannelResult result) {
                         if (!result.getStatus().isSuccess()) {
-                            onFailed(R.string.ccl_failed_to_pause,
-                                    result.getStatus().getStatusCode());
+                            onFailed(R.string.ccl_failed_to_pause, result.getStatus().getStatusCode());
                         }
                     }
 
@@ -1705,9 +1702,7 @@ public class VideoCastManager extends BaseCastManager
             LOGE(TAG, "Trying to seek a video with no active media session");
             throw new NoConnectionException();
         }
-        mRemoteMediaPlayer.seek(mApiClient,
-                position,
-                RemoteMediaPlayer.RESUME_STATE_UNCHANGED).
+        mRemoteMediaPlayer.seek(mApiClient, position, RemoteMediaPlayer.RESUME_STATE_UNCHANGED).
                 setResultCallback(new ResultCallback<MediaChannelResult>() {
 
                     @Override
@@ -1887,8 +1882,7 @@ public class VideoCastManager extends BaseCastManager
         LOGD(TAG, "trying to detach media channel");
         if (mRemoteMediaPlayer != null) {
             try {
-                Cast.CastApi.removeMessageReceivedCallbacks(mApiClient,
-                        mRemoteMediaPlayer.getNamespace());
+                Cast.CastApi.removeMessageReceivedCallbacks(mApiClient, mRemoteMediaPlayer.getNamespace());
             } catch (IOException | IllegalStateException e) {
                 LOGE(TAG, "detachMediaChannel()", e);
             }
@@ -2605,10 +2599,12 @@ public class VideoCastManager extends BaseCastManager
 
     @Override
     protected MediaRouteDialogFactory getMediaRouteDialogFactory() {
-        // you can return "new VideoMediaRouteDialogFactory()" if interested in the custom
-        // dialog defined in this library; recent versions of the dialogs provided by the
-        // support library follow the UX guideline.
-        return null;
+        return mMediaRouteDialogFactory;
+    }
+
+    public void setMediaRouteDialogFactory(MediaRouteDialogFactory mediaRouteDialogFactory) {
+        // if not set, the default MediaRouteDialogFactory will be used
+        mMediaRouteDialogFactory = mediaRouteDialogFactory;
     }
 
     class CastListener extends Cast.Listener {
